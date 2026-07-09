@@ -3,15 +3,18 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>React Starter</title>
+    <title>LeitorPDF - TECHNOCODE</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Poppins:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script>
       tailwind.config = {
         theme: {
           extend: {
             fontFamily: {
               sans: ['Inter', 'sans-serif'],
+              poppins: ['Poppins', 'sans-serif'],
+              mono: ['JetBrains Mono', 'monospace'],
             },
             colors: {
               border: "hsl(var(--border))",
@@ -47,12 +50,101 @@
                 DEFAULT: "hsl(var(--card))",
                 foreground: "hsl(var(--card-foreground))",
               },
+              brand: {
+                50: '#fbfaf9',
+                100: '#f7f5f2',
+                200: '#f4f2ee',
+                300: '#ede9e2',
+                400: '#ddd5c8',
+                500: '#c3b5a0',
+                600: '#7e7261',
+                700: '#534a3d',
+                800: '#372d23',
+                900: '#181410',
+              },
+              gray: {
+                50: '#f9f9f9',
+                100: '#efefef',
+                200: '#dad8d8',
+                300: '#cbcbcb',
+                400: '#a8a3a3',
+                500: '#807a7a',
+                600: '#4f4a4a',
+                700: '#373737',
+                800: '#232323',
+                900: '#141414',
+              },
+              blue: {
+                50: '#e4ecf6',
+                100: '#d9e4f2',
+                200: '#c2d6eb',
+                300: '#9ebfe1',
+                400: '#88afd7',
+                500: '#538bc5',
+                600: '#2f5d8d',
+                700: '#203f60',
+                800: '#112a46',
+                900: '#0d2035',
+              },
+              green: {
+                50: '#edf2e7',
+                100: '#e0ebd6',
+                200: '#cee2c5',
+                300: '#adcda2',
+                400: '#8fb884',
+                500: '#4b9b4e',
+                600: '#3e7440',
+                700: '#325332',
+                800: '#313e2f',
+                900: '#1e261d',
+              },
+              red: {
+                50: '#f6e4e4',
+                100: '#f8d6d8',
+                200: '#f5c7c8',
+                300: '#ec9395',
+                400: '#e2787a',
+                500: '#be3739',
+                600: '#ac1e21',
+                700: '#8e141c',
+                800: '#6c1315',
+                900: '#4c1011',
+              },
+              yellow: {
+                50: '#f7f5e2',
+                100: '#f6f1cb',
+                200: '#f5edbc',
+                300: '#e9d996',
+                400: '#d8c06e',
+                500: '#ce9e24',
+                600: '#8f6619',
+                700: '#6d4d13',
+                800: '#4a350d',
+                900: '#342509',
+              },
+              teal: {
+                50: '#e8f1ef',
+                100: '#d7eae6',
+                200: '#c3e4de',
+                300: '#addcd4',
+                400: '#7cd0c1',
+                500: '#40bfa9',
+                600: '#0e816c',
+                700: '#0b6555',
+                800: '#1c4a48',
+                900: '#153231',
+              },
             },
             borderRadius: {
               lg: "var(--radius)",
               md: "calc(var(--radius) - 2px)",
               sm: "calc(var(--radius) - 4px)",
             },
+            boxShadow: {
+              'xs-salvy': '0px 1px 2px 0px var(--shadow-xs-color, #1018280d)',
+              '1-salvy': '-8px -8px 24px 0px var(--shadow-start-color, #ffffff80), 8px 8px 24px 0px var(--shadow-1-end-color, #1d293926)',
+              '2-salvy': '-8px -8px 24px 0px var(--shadow-start-color, #ffffff80), 8px 8px 32px 0px var(--shadow-2-end-color, #1d29393d)',
+            }
           },
         },
       }
@@ -79,6 +171,12 @@
         --input: 214.3 31.8% 91.4%;
         --ring: 222.2 84% 4.9%;
         --radius: 0.5rem;
+
+        /* Salvy Shadows */
+        --shadow-xs-color: #1018280d;
+        --shadow-start-color: #ffffff80;
+        --shadow-1-end-color: #1d293926;
+        --shadow-2-end-color: #1d29393d;
       }
     </style>
   <script type="importmap">
