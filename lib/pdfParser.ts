@@ -2,7 +2,18 @@ export interface ParsedTransaction {
   id_temp: number;
   data: string; // YYYY-MM-DD
   documento: string;
-  tipo_documento: 'PIX' | 'TRANSFERÊNCIA' | 'DEPÓSITO' | 'CARTÃO DE CRÉDITO' | 'BOLETO' | 'OUTROS' | 'SALDO';
+  tipo_documento: 
+    | 'PIX' 
+    | 'TRANSFERÊNCIA' 
+    | 'DEPÓSITO' 
+    | 'CARTÃO DE CRÉDITO' 
+    | 'CARTÃO DE DÉBITO' 
+    | 'IOF' 
+    | 'CHEQUE' 
+    | 'TARIFA' 
+    | 'BOLETO' 
+    | 'OUTROS' 
+    | 'SALDO';
   historico: string;
   valor_debito: number | null;
   valor_credito: number | null;
@@ -180,25 +191,78 @@ function parseSicoob(fullText: string): { transactions: ParsedTransaction[], per
     if (descUpper.includes('PIX') || docUpper.includes('PIX')) {
       docType = 'PIX';
     } else if (
+      descUpper.includes('IOF') || 
+      descUpper.includes('IMP.OP') || 
+      descUpper.includes('IMPOSTO OP') || 
+      descUpper.includes('IMP S/ OPER') ||
+      descUpper.includes('IMPOSTO S/ OPER')
+    ) {
+      docType = 'IOF';
+    } else if (
+      descUpper.includes('CHEQUE') || 
+      descUpper.includes('CHQ') || 
+      descUpper.includes('CH.') || 
+      descUpper.startsWith('CH ') || 
+      descUpper.includes(' CH ') || 
+      docUpper.includes('CHEQUE') || 
+      docUpper.includes('CHQ')
+    ) {
+      docType = 'CHEQUE';
+    } else if (
+      descUpper.includes('TARIFA') || 
+      descUpper.includes('TAR.') || 
+      descUpper.includes('TAR CONTA') || 
+      descUpper.includes('MANUTENCAO CONTA') || 
+      descUpper.includes('MANUT.CONTA') || 
+      descUpper.includes('MANUT CONTA') || 
+      descUpper.includes('COBRANCA TARIFA') || 
+      descUpper.includes('TAR BANC') || 
+      descUpper.includes('TAXA SERVICO') ||
+      descUpper.includes('TAR PAQ') ||
+      descUpper.includes('TAR EXTRATO')
+    ) {
+      docType = 'TARIFA';
+    } else if (
+      descUpper.includes('CARTAO DEBITO') ||
+      descUpper.includes('CARTÃO DÉBITO') ||
+      descUpper.includes('CARTAO DÉBITO') ||
+      descUpper.includes('CARTÃO DEBITO') ||
+      descUpper.includes('COMPRA DEBITO') ||
+      descUpper.includes('COMPRA DÉBITO') ||
+      descUpper.includes('DEB.CARTAO') ||
+      descUpper.includes('DÉB.CARTÃO') ||
+      descUpper.includes('DEB CARTAO') ||
+      descUpper.includes('DÉB CARTÃO') ||
+      descUpper.includes('MAESTRO') ||
+      descUpper.includes('VISA ELECTRON') ||
+      descUpper.includes('ELO DEBITO') ||
+      descUpper.includes('ELO DÉBITO') ||
+      (descUpper.includes('DEBITO') && (descUpper.includes('CARTAO') || descUpper.includes('CARTÃO')))
+    ) {
+      docType = 'CARTÃO DE DÉBITO';
+    } else if (
+      descUpper.includes('CARTAO CREDITO') ||
+      descUpper.includes('CARTÃO CRÉDITO') ||
+      descUpper.includes('CARTAO') || 
+      descUpper.includes('CARTÃO') || 
+      descUpper.includes('COMPRAS') || 
+      descUpper.includes('SIPAG') ||
+      descUpper.includes('MASTERCARD') ||
+      descUpper.includes('CABAL') ||
+      descUpper.includes('ELO') ||
+      descUpper.includes('VISA')
+    ) {
+      docType = 'CARTÃO DE CRÉDITO';
+    } else if (
       descUpper.includes('TRANSFERENCIA') || 
+      descUpper.includes('TRANSFERÊNCIA') || 
       descUpper.includes('TRANSF') || 
       descUpper.includes('TED') || 
       descUpper.includes('DOC')
     ) {
       docType = 'TRANSFERÊNCIA';
-    } else if (descUpper.includes('DEP') || descUpper.includes('DEPOSITO')) {
+    } else if (descUpper.includes('DEP') || descUpper.includes('DEPOSITO') || descUpper.includes('DEPÓSITO')) {
       docType = 'DEPÓSITO';
-    } else if (
-      descUpper.includes('CARTAO') || 
-      descUpper.includes('COMPRAS') || 
-      descUpper.includes('SIPAG') ||
-      descUpper.includes('MAESTRO') ||
-      descUpper.includes('VISA') ||
-      descUpper.includes('MASTERCARD') ||
-      descUpper.includes('CABAL') ||
-      descUpper.includes('ELO')
-    ) {
-      docType = 'CARTÃO DE CRÉDITO';
     } else if (descUpper.includes('SALDO')) {
       docType = 'SALDO';
     } else if (
@@ -293,26 +357,79 @@ function parseBradesco(fullText: string): { transactions: ParsedTransaction[], p
         if (typeText.includes('PIX') || docUpper.includes('PIX')) {
           docType = 'PIX';
         } else if (
+          typeText.includes('IOF') || 
+          typeText.includes('IMP.OP') || 
+          typeText.includes('IMPOSTO OP') || 
+          typeText.includes('IMP S/ OPER') ||
+          typeText.includes('IMPOSTO S/ OPER')
+        ) {
+          docType = 'IOF';
+        } else if (
+          typeText.includes('CHEQUE') || 
+          typeText.includes('CHQ') || 
+          typeText.includes('CH.') || 
+          typeText.startsWith('CH ') || 
+          typeText.includes(' CH ') || 
+          docUpper.includes('CHEQUE') || 
+          docUpper.includes('CHQ')
+        ) {
+          docType = 'CHEQUE';
+        } else if (
+          typeText.includes('TARIFA') || 
+          typeText.includes('TAR.') || 
+          typeText.includes('TAR CONTA') || 
+          typeText.includes('MANUTENCAO CONTA') || 
+          typeText.includes('MANUT.CONTA') || 
+          typeText.includes('MANUT CONTA') || 
+          typeText.includes('COBRANCA TARIFA') || 
+          typeText.includes('TAR BANC') || 
+          typeText.includes('TAXA SERVICO') ||
+          typeText.includes('TAR PAQ') ||
+          typeText.includes('TAR EXTRATO')
+        ) {
+          docType = 'TARIFA';
+        } else if (
+          typeText.includes('CARTAO DEBITO') ||
+          typeText.includes('CARTÃO DÉBITO') ||
+          typeText.includes('CARTAO DÉBITO') ||
+          typeText.includes('CARTÃO DEBITO') ||
+          typeText.includes('COMPRA DEBITO') ||
+          typeText.includes('COMPRA DÉBITO') ||
+          typeText.includes('DEB.CARTAO') ||
+          typeText.includes('DÉB.CARTÃO') ||
+          typeText.includes('DEB CARTAO') ||
+          typeText.includes('DÉB CARTÃO') ||
+          typeText.includes('MAESTRO') ||
+          typeText.includes('VISA ELECTRON') ||
+          typeText.includes('ELO DEBITO') ||
+          typeText.includes('ELO DÉBITO') ||
+          (typeText.includes('DEBITO') && (typeText.includes('CARTAO') || typeText.includes('CARTÃO')))
+        ) {
+          docType = 'CARTÃO DE DÉBITO';
+        } else if (
+          typeText.includes('CARTAO CREDITO') ||
+          typeText.includes('CARTÃO CRÉDITO') ||
+          typeText.includes('CARTAO') || 
+          typeText.includes('CARTÃO') || 
+          typeText.includes('COMPRAS') || 
+          typeText.includes('SIPAG') ||
+          typeText.includes('MASTERCARD') ||
+          typeText.includes('CABAL') ||
+          typeText.includes('ELO') ||
+          typeText.includes('VISA') ||
+          typeText.includes('CIELO')
+        ) {
+          docType = 'CARTÃO DE CRÉDITO';
+        } else if (
           typeText.includes('TRANSFERENCIA') || 
+          typeText.includes('TRANSFERÊNCIA') || 
           typeText.includes('TRANSF') || 
           typeText.includes('TED') || 
           typeText.includes('DOC')
         ) {
           docType = 'TRANSFERÊNCIA';
-        } else if (typeText.includes('DEP') || typeText.includes('DEPOSITO')) {
+        } else if (typeText.includes('DEP') || typeText.includes('DEPOSITO') || typeText.includes('DEPÓSITO')) {
           docType = 'DEPÓSITO';
-        } else if (
-          typeText.includes('CARTAO') || 
-          typeText.includes('COMPRAS') || 
-          typeText.includes('SIPAG') ||
-          typeText.includes('MAESTRO') ||
-          typeText.includes('VISA') ||
-          typeText.includes('MASTERCARD') ||
-          typeText.includes('CABAL') ||
-          typeText.includes('ELO') ||
-          typeText.includes('CIELO')
-        ) {
-          docType = 'CARTÃO DE CRÉDITO';
         } else if (
           typeText.includes('BOLETO') || 
           typeText.includes('TÍTULO') || 

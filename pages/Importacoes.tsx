@@ -20,11 +20,15 @@ import {
   ChevronRight,
   Filter,
   CreditCard,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Receipt,
+  Percent,
+  Landmark
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { supabase } from '../lib/supabase';
 import { parsePdfFile, ParsedTransaction } from '../lib/pdfParser';
+import { registrarNotificacao } from '../lib/notificacoes';
 
 const Importacoes: React.FC = () => {
   const [file, setFile] = useState<File | null>(null);
@@ -258,6 +262,44 @@ const Importacoes: React.FC = () => {
       setSyncStatus('synced');
       setHasDbRecords(true);
       setSuccessMsg(`${totalInserted} registros salvos na tabela temporária do Supabase com sucesso!`);
+
+      // Record IMPORTACAO_EXTRATO notification
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        let userName = 'Usuário';
+        let userEmail = session?.user?.email || null;
+        let userId = session?.user?.id || null;
+
+        if (userId) {
+          const { data: profile } = await supabase
+            .from('usuarios')
+            .select('nome, email')
+            .eq('id', userId)
+            .single();
+
+          if (profile) {
+            userName = profile.nome;
+            if (profile.email) userEmail = profile.email;
+          }
+        }
+
+        const fileName = file ? file.name : 'extrato.pdf';
+        await registrarNotificacao({
+          tipo_evento: 'IMPORTACAO_EXTRATO',
+          usuario_id: userId,
+          usuario_nome: userName,
+          usuario_email: userEmail,
+          nome_arquivo: fileName,
+          descricao: `Importação do arquivo "${fileName}" realizada com sucesso (${totalInserted} lançamentos).`,
+          detalhes: {
+            total_lancamentos: totalInserted,
+            referente_extrato: referenteExtrato,
+            modelo: activeModel || selectedModel
+          }
+        });
+      } catch (notifErr) {
+        console.error('Erro ao registrar notificação de importação:', notifErr);
+      }
       
       // Wait 5 seconds and release for a new import
       setTimeout(() => {
@@ -356,13 +398,15 @@ const Importacoes: React.FC = () => {
 
   // Quantity Calculations by Category
   const pixCount = transactions.filter(t => t.tipo_documento === 'PIX').length;
-  const cardsCount = transactions.filter(t => t.tipo_documento === 'CARTÃO DE CRÉDITO').length;
+  const creditCardsCount = transactions.filter(t => t.tipo_documento === 'CARTÃO DE CRÉDITO').length;
+  const debitCardsCount = transactions.filter(t => t.tipo_documento === 'CARTÃO DE DÉBITO').length;
+  const iofCount = transactions.filter(t => t.tipo_documento === 'IOF').length;
+  const chequeCount = transactions.filter(t => t.tipo_documento === 'CHEQUE').length;
+  const tarifaCount = transactions.filter(t => t.tipo_documento === 'TARIFA').length;
   const boletosCount = transactions.filter(t => t.tipo_documento === 'BOLETO').length;
-  const othersCount = transactions.filter(t => 
-    t.tipo_documento !== 'PIX' && 
-    t.tipo_documento !== 'CARTÃO DE CRÉDITO' && 
-    t.tipo_documento !== 'BOLETO'
-  ).length;
+  const transfCount = transactions.filter(t => t.tipo_documento === 'TRANSFERÊNCIA').length;
+  const depositoCount = transactions.filter(t => t.tipo_documento === 'DEPÓSITO').length;
+  const othersCount = transactions.filter(t => t.tipo_documento === 'OUTROS').length;
 
   // Filtered dataset
   const filteredTransactions = transactions.filter(tx => {
@@ -408,6 +452,14 @@ const Importacoes: React.FC = () => {
         return 'bg-green-50 text-green-700 border-green-200';
       case 'CARTÃO DE CRÉDITO':
         return 'bg-blue-50 text-blue-700 border-blue-200';
+      case 'CARTÃO DE DÉBITO':
+        return 'bg-indigo-50 text-indigo-700 border-indigo-200';
+      case 'IOF':
+        return 'bg-amber-50 text-amber-700 border-amber-200';
+      case 'CHEQUE':
+        return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+      case 'TARIFA':
+        return 'bg-rose-50 text-rose-700 border-rose-200';
       case 'BOLETO':
         return 'bg-yellow-50 text-yellow-800 border-yellow-200';
       default:
@@ -616,64 +668,92 @@ const Importacoes: React.FC = () => {
 
       {/* 3. KPI / Metrics Summary Section */}
       {transactions.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-8 gap-3">
           {/* Total Transactions */}
-          <div className="bg-white border border-gray-200 rounded-xl p-5 flex items-center justify-between shadow-xs-salvy hover:shadow-md transition-shadow">
-            <div className="space-y-1">
-              <span className="text-xs font-semibold text-teal-600 uppercase tracking-wider">Total Geral</span>
-              <h2 className="text-3xl font-bold font-mono text-teal-700">{transactions.length}</h2>
-              <p className="text-[10px] text-gray-400">Total de lançamentos</p>
+          <div className="bg-white border border-gray-200 rounded-xl p-3.5 flex items-center justify-between shadow-xs-salvy hover:shadow-md transition-shadow">
+            <div className="space-y-0.5">
+              <span className="text-[10px] font-semibold text-teal-600 uppercase tracking-wider">Total</span>
+              <h2 className="text-xl font-bold font-mono text-teal-700">{transactions.length}</h2>
             </div>
-            <div className="h-12 w-12 rounded-lg bg-teal-50 text-teal-600 flex items-center justify-center">
-              <FileCheck className="h-6 w-6" />
-            </div>
-          </div>
-
-          {/* Pix Quantity */}
-          <div className="bg-white border border-gray-200 rounded-xl p-5 flex items-center justify-between shadow-xs-salvy hover:shadow-md transition-shadow">
-            <div className="space-y-1">
-              <span className="text-xs font-semibold text-purple-600 uppercase tracking-wider">Lançamentos Pix</span>
-              <h2 className="text-3xl font-bold font-mono text-purple-700">{pixCount}</h2>
-              <p className="text-[10px] text-gray-400">Transferências instantâneas</p>
-            </div>
-            <div className="h-12 w-12 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center">
-              <DollarSign className="h-6 w-6" />
+            <div className="h-9 w-9 rounded-lg bg-teal-50 text-teal-600 flex items-center justify-center shrink-0">
+              <FileCheck className="h-4.5 w-4.5" />
             </div>
           </div>
 
-          {/* Cards Quantity */}
-          <div className="bg-white border border-gray-200 rounded-xl p-5 flex items-center justify-between shadow-xs-salvy hover:shadow-md transition-shadow">
-            <div className="space-y-1">
-              <span className="text-xs font-semibold text-blue-600 uppercase tracking-wider">Lançamentos Cartões</span>
-              <h2 className="text-3xl font-bold font-mono text-blue-700">{cardsCount}</h2>
-              <p className="text-[10px] text-gray-400">Vendas crédito/débito Cielo</p>
+          {/* Pix */}
+          <div className="bg-white border border-gray-200 rounded-xl p-3.5 flex items-center justify-between shadow-xs-salvy hover:shadow-md transition-shadow">
+            <div className="space-y-0.5">
+              <span className="text-[10px] font-semibold text-purple-600 uppercase tracking-wider">Pix</span>
+              <h2 className="text-xl font-bold font-mono text-purple-700">{pixCount}</h2>
             </div>
-            <div className="h-12 w-12 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
-              <CreditCard className="h-6 w-6" />
-            </div>
-          </div>
-
-          {/* Boletos Quantity */}
-          <div className="bg-white border border-gray-200 rounded-xl p-5 flex items-center justify-between shadow-xs-salvy hover:shadow-md transition-shadow">
-            <div className="space-y-1">
-              <span className="text-xs font-semibold text-amber-600 uppercase tracking-wider">Lançamentos Boletos</span>
-              <h2 className="text-3xl font-bold font-mono text-amber-700">{boletosCount}</h2>
-              <p className="text-[10px] text-gray-400">Títulos e convênios pagos</p>
-            </div>
-            <div className="h-12 w-12 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
-              <FileText className="h-6 w-6" />
+            <div className="h-9 w-9 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center shrink-0">
+              <DollarSign className="h-4.5 w-4.5" />
             </div>
           </div>
 
-          {/* Others Quantity */}
-          <div className="bg-white border border-gray-200 rounded-xl p-5 flex items-center justify-between shadow-xs-salvy hover:shadow-md transition-shadow">
-            <div className="space-y-1">
-              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Lançamentos Outros</span>
-              <h2 className="text-3xl font-bold font-mono text-gray-700">{othersCount}</h2>
-              <p className="text-[10px] text-gray-400">Tarifas, transferências e outros</p>
+          {/* C. Débito */}
+          <div className="bg-white border border-gray-200 rounded-xl p-3.5 flex items-center justify-between shadow-xs-salvy hover:shadow-md transition-shadow">
+            <div className="space-y-0.5">
+              <span className="text-[10px] font-semibold text-indigo-600 uppercase tracking-wider">C. Débito</span>
+              <h2 className="text-xl font-bold font-mono text-indigo-700">{debitCardsCount}</h2>
             </div>
-            <div className="h-12 w-12 rounded-lg bg-gray-50 text-gray-500 flex items-center justify-center">
-              <SlidersHorizontal className="h-6 w-6" />
+            <div className="h-9 w-9 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
+              <CreditCard className="h-4.5 w-4.5" />
+            </div>
+          </div>
+
+          {/* C. Crédito */}
+          <div className="bg-white border border-gray-200 rounded-xl p-3.5 flex items-center justify-between shadow-xs-salvy hover:shadow-md transition-shadow">
+            <div className="space-y-0.5">
+              <span className="text-[10px] font-semibold text-blue-600 uppercase tracking-wider">C. Crédito</span>
+              <h2 className="text-xl font-bold font-mono text-blue-700">{creditCardsCount}</h2>
+            </div>
+            <div className="h-9 w-9 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+              <CreditCard className="h-4.5 w-4.5" />
+            </div>
+          </div>
+
+          {/* IOF */}
+          <div className="bg-white border border-gray-200 rounded-xl p-3.5 flex items-center justify-between shadow-xs-salvy hover:shadow-md transition-shadow">
+            <div className="space-y-0.5">
+              <span className="text-[10px] font-semibold text-amber-600 uppercase tracking-wider">IOF</span>
+              <h2 className="text-xl font-bold font-mono text-amber-700">{iofCount}</h2>
+            </div>
+            <div className="h-9 w-9 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
+              <Percent className="h-4.5 w-4.5" />
+            </div>
+          </div>
+
+          {/* Cheque */}
+          <div className="bg-white border border-gray-200 rounded-xl p-3.5 flex items-center justify-between shadow-xs-salvy hover:shadow-md transition-shadow">
+            <div className="space-y-0.5">
+              <span className="text-[10px] font-semibold text-emerald-600 uppercase tracking-wider">Cheque</span>
+              <h2 className="text-xl font-bold font-mono text-emerald-700">{chequeCount}</h2>
+            </div>
+            <div className="h-9 w-9 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+              <Landmark className="h-4.5 w-4.5" />
+            </div>
+          </div>
+
+          {/* Tarifa */}
+          <div className="bg-white border border-gray-200 rounded-xl p-3.5 flex items-center justify-between shadow-xs-salvy hover:shadow-md transition-shadow">
+            <div className="space-y-0.5">
+              <span className="text-[10px] font-semibold text-rose-600 uppercase tracking-wider">Tarifa</span>
+              <h2 className="text-xl font-bold font-mono text-rose-700">{tarifaCount}</h2>
+            </div>
+            <div className="h-9 w-9 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center shrink-0">
+              <Receipt className="h-4.5 w-4.5" />
+            </div>
+          </div>
+
+          {/* Boletos */}
+          <div className="bg-white border border-gray-200 rounded-xl p-3.5 flex items-center justify-between shadow-xs-salvy hover:shadow-md transition-shadow">
+            <div className="space-y-0.5">
+              <span className="text-[10px] font-semibold text-yellow-700 uppercase tracking-wider">Boletos</span>
+              <h2 className="text-xl font-bold font-mono text-yellow-800">{boletosCount}</h2>
+            </div>
+            <div className="h-9 w-9 rounded-lg bg-yellow-50 text-yellow-700 flex items-center justify-center shrink-0">
+              <FileText className="h-4.5 w-4.5" />
             </div>
           </div>
         </div>
@@ -705,27 +785,41 @@ const Importacoes: React.FC = () => {
                 {[
                   { key: 'ALL', label: 'Todos' },
                   { key: 'PIX', label: 'Pix' },
-                  { key: 'CARTÃO DE CRÉDITO', label: 'Cartões' },
+                  { key: 'CARTÃO DE DÉBITO', label: 'C. Débito' },
+                  { key: 'CARTÃO DE CRÉDITO', label: 'C. Crédito' },
+                  { key: 'IOF', label: 'IOF' },
+                  { key: 'CHEQUE', label: 'Cheque' },
+                  { key: 'TARIFA', label: 'Tarifa' },
                   { key: 'BOLETO', label: 'Boletos' },
                   { key: 'TRANSFERÊNCIA', label: 'Transf.' },
                   { key: 'DEPÓSITO', label: 'Depósitos' },
                   { key: 'OUTROS', label: 'Outros' }
-                ].map(tab => (
-                  <button
-                    key={tab.key}
-                    onClick={() => {
-                      setSelectedType(tab.key);
-                      setCurrentPage(1);
-                    }}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all duration-150 ${
-                      selectedType === tab.key
-                        ? 'bg-[#181410] border-[#181410] text-white'
-                        : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
-                    }`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
+                ].map(tab => {
+                  const count = getTabCount(tab.key);
+                  return (
+                    <button
+                      key={tab.key}
+                      onClick={() => {
+                        setSelectedType(tab.key);
+                        setCurrentPage(1);
+                      }}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold border flex items-center space-x-1.5 transition-all duration-150 ${
+                        selectedType === tab.key
+                          ? 'bg-[#181410] border-[#181410] text-white shadow-xs-salvy'
+                          : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
+                      }`}
+                    >
+                      <span>{tab.label}</span>
+                      <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+                        selectedType === tab.key
+                          ? 'bg-white/20 text-white'
+                          : 'bg-gray-100 text-gray-500'
+                      }`}>
+                        {count}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 

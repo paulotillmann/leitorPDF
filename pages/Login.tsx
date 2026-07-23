@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Mail, Lock, User, Phone, Eye, EyeOff, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { registrarNotificacao } from '../lib/notificacoes';
 import logoWhite from '../logo/technocode-logo-white.png';
 
 interface LoginProps {
@@ -142,7 +143,14 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
             await supabase.auth.signOut();
             setErrorMsg('Seu acesso ainda não foi autorizado pelo administrador. Por favor, aguarde.');
           } else {
-            // Success! Send to parent
+            // Success! Register LOGON notification
+            await registrarNotificacao({
+              tipo_evento: 'LOGON',
+              usuario_id: profile.id,
+              usuario_nome: profile.nome,
+              usuario_email: profile.email,
+              descricao: `O usuário ${profile.nome} realizou logon no sistema.`,
+            });
             onLoginSuccess(data.session);
           }
         }

@@ -15,10 +15,12 @@ import {
 } from 'lucide-react';
 import Inicio from './pages/Inicio';
 import Importacoes from './pages/Importacoes';
+import Notificacoes from './pages/Notificacoes';
 import logoTechnocode from './logo/logo_technocode-black.png';
 import Login from './pages/Login';
 import Configuracoes from './pages/Configuracoes';
 import { supabase } from './lib/supabase';
+import { registrarNotificacao } from './lib/notificacoes';
 import { Loader2 } from 'lucide-react';
 
 // Simple Hash Router Hook
@@ -106,7 +108,41 @@ const UnderConstructionView: React.FC<UnderConstructionViewProps> = ({
 const App: React.FC = () => {
   const { currentHash, navigate } = useRouter();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [notificationsCount, setNotificationsCount] = useState(3);
+  const [notificationsCount, setNotificationsCount] = useState(0);
+
+  useEffect(() => {
+    fetchNotificationsCount();
+
+    // Realtime listener for notificacoes table
+    const subscription = supabase
+      .channel('app-notificacoes-count')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'notificacoes' },
+        () => {
+          fetchNotificationsCount();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(subscription);
+    };
+  }, []);
+
+  const fetchNotificationsCount = async () => {
+    try {
+      const { count, error } = await supabase
+        .from('notificacoes')
+        .select('*', { count: 'exact', head: true });
+
+      if (!error && count !== null) {
+        setNotificationsCount(count);
+      }
+    } catch (err) {
+      console.error('Erro ao contar notificações:', err);
+    }
+  };
   
   // Auth States
   const [session, setSession] = useState<any>(null);
@@ -194,16 +230,7 @@ const App: React.FC = () => {
       case '#importacoes':
         return <Importacoes key="importacoes" />;
       case '#notificacoes':
-        return (
-          <UnderConstructionView
-            key="notificacoes"
-            title="Notificações"
-            description="Fique por dentro das últimas auditorias, carregamentos de arquivos de telefonia e atualizações do sistema."
-            icon={<Bell className="h-12 w-12" />}
-            iconBgColor="bg-blue-50"
-            iconColor="text-blue-600"
-          />
-        );
+        return <Notificacoes key="notificacoes" currentUserProfile={userProfile} />;
       case '#configuracoes':
         return <Configuracoes key="configuracoes" currentUserProfile={userProfile} />;
       default:
@@ -306,6 +333,40 @@ const App: React.FC = () => {
               </motion.span>
             )}
           </button>
+
+          {/* Menu Option: Notificações (Apenas Administradores) */}
+          {userProfile?.is_admin && (
+            <button
+              onClick={() => navigate('#notificacoes')}
+              className={`group flex w-full items-center justify-between rounded-[5px] p-3 text-sm font-semibold transition-all duration-200 ease-out hover:scale-[1.02] ${
+                currentHash === '#notificacoes'
+                  ? 'bg-[#181410] text-white'
+                  : 'text-gray-600 hover:bg-gray-200/50 hover:text-brand-900'
+              }`}
+            >
+              <div className="flex items-center">
+                <Bell className={`h-5 w-5 shrink-0 ${sidebarCollapsed ? 'mx-auto' : 'mr-3'}`} />
+                {!sidebarCollapsed && (
+                  <motion.span
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="font-sans"
+                  >
+                    Notificações
+                  </motion.span>
+                )}
+              </div>
+              {!sidebarCollapsed && notificationsCount > 0 && (
+                <span className={`px-2 py-0.5 rounded-full text-xs font-mono font-bold ${
+                  currentHash === '#notificacoes'
+                    ? 'bg-white/20 text-white'
+                    : 'bg-blue-100 text-blue-800'
+                }`}>
+                  {notificationsCount}
+                </span>
+              )}
+            </button>
+          )}
         </div>
       </nav>
 
@@ -342,21 +403,23 @@ const App: React.FC = () => {
               </div>
             )}
 
-            {/* Notifications Button */}
-            <button
-              onClick={() => navigate('#notificacoes')}
-              className={`relative flex h-10 w-10 items-center justify-center rounded-xl text-gray-500 hover:bg-gray-50 hover:text-brand-900 transition-colors shadow-xs-salvy ${
-                currentHash === '#notificacoes' ? 'bg-brand-50 text-brand-900' : ''
-              }`}
-              title="Notificações"
-            >
-              <Bell className="h-5 w-5" />
-              {notificationsCount > 0 && (
-                <span className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white shadow-sm font-mono">
-                  {notificationsCount}
-                </span>
-              )}
-            </button>
+            {/* Notifications Button (Apenas Administradores) */}
+            {userProfile?.is_admin && (
+              <button
+                onClick={() => navigate('#notificacoes')}
+                className={`relative flex h-10 w-10 items-center justify-center rounded-xl text-gray-500 hover:bg-gray-50 hover:text-brand-900 transition-colors shadow-xs-salvy ${
+                  currentHash === '#notificacoes' ? 'bg-brand-50 text-brand-900' : ''
+                }`}
+                title="Notificações (Apenas Administrador)"
+              >
+                <Bell className="h-5 w-5" />
+                {notificationsCount > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white shadow-sm font-mono">
+                    {notificationsCount}
+                  </span>
+                )}
+              </button>
+            )}
 
             {/* Settings Button */}
             <button
@@ -375,6 +438,15 @@ const App: React.FC = () => {
             {/* Exit/Sign Out Button */}
             <button
               onClick={async () => {
+                if (userProfile) {
+                  await registrarNotificacao({
+                    tipo_evento: 'LOGOFF',
+                    usuario_id: userProfile.id,
+                    usuario_nome: userProfile.nome,
+                    usuario_email: userProfile.email,
+                    descricao: `O usuário ${userProfile.nome} realizou logoff do sistema.`,
+                  });
+                }
                 await supabase.auth.signOut();
                 navigate('#inicio');
               }}
