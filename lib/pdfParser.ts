@@ -461,14 +461,208 @@ function parseBradesco(fullText: string): { transactions: ParsedTransaction[], p
   return { transactions, periodStart };
 }
 
+// Nubank configuration patterns
+const nubankMonths: Record<string, string> = {
+  JAN: '01', FEV: '02', MAR: '03', ABR: '04', MAI: '05', JUN: '06',
+  JUL: '07', AGO: '08', SET: '09', OUT: '10', NOV: '11', DEZ: '12'
+};
+
+// Lines that start the repeated footer of each page (footer + next page header are skipped)
+const nubankPageFooterPattern = /^Tem alguma dúvida\?/i;
+// Last line of the repeated page header ("01 DE MAIO DE 2026 a 31 DE MAIO DE 2026 VALORES EM R$")
+const nubankPageHeaderEndPattern = /VALORES EM R\$\s*$/i;
+// Marks the beginning / end of the transactions section
+const nubankStartPattern = /^Movimentações$/i;
+const nubankEndPattern = /^O saldo líquido corresponde/i;
+
+const nubankMonthToNumber = (monthName: string): string | null => {
+  const key = monthName
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .slice(0, 3);
+  return nubankMonths[key] || null;
+};
+
+function classifyNubank(historico: string): ParsedTransaction['tipo_documento'] {
+  const desc = historico.toUpperCase();
+
+  if (desc.includes('PIX')) return 'PIX';
+  if (desc.startsWith('COMPRA NO DÉBITO') || desc.startsWith('COMPRA NO DEBITO')) return 'CARTÃO DE DÉBITO';
+  if (desc.startsWith('PAGAMENTO DE FATURA')) return 'CARTÃO DE CRÉDITO';
+  if (desc.startsWith('PAGAMENTO DE BOLETO') || desc.includes('BOLETO')) return 'BOLETO';
+  if (desc.startsWith('TRANSFERÊNCIA') || desc.startsWith('TRANSFERENCIA')) return 'TRANSFERÊNCIA';
+  if (desc.startsWith('DEPÓSITO') || desc.startsWith('DEPOSITO')) return 'DEPÓSITO';
+  if (desc.includes('IOF')) return 'IOF';
+  if (desc.includes('TARIFA')) return 'TARIFA';
+  // "Débito em conta", "Resgate de empréstimo" and any unknown entry
+  return 'OUTROS';
+}
+
+// SUB-PARSER 3: Nubank Parser
+export function parseNubank(fullText: string): { transactions: ParsedTransaction[], periodStart: string | null } {
+  // Extract period: "01 DE MAIO DE 2026 a 31 DE MAIO DE 2026"
+  let periodStart: string | null = null;
+  const periodMatch = fullText.match(/(\d{2})\s+DE\s+([A-ZÀ-Ú]+)\s+DE\s+(\d{4})\s+a\s+/i);
+  if (periodMatch) {
+    const month = nubankMonthToNumber(periodMatch[2]);
+    if (month) periodStart = `${periodMatch[1]}/${month}/${periodMatch[3]}`;
+  }
+
+  const lines = fullText.split('\n');
+  const rawTxs: { date: string; isCredit: boolean; amount: number; descriptionLines: string[] }[] = [];
+  let currentTx: typeof rawTxs[0] | null = null;
+  let currentDate: string | null = null;
+  let isCredit = false;
+  let inMovements = false;
+  let skippingPageBreak = false;
+
+  for (const line of lines) {
+    const trimmed = line.replace('\r', '').trim();
+    if (!trimmed) continue;
+
+    if (!inMovements) {
+      if (nubankStartPattern.test(trimmed)) inMovements = true;
+      continue;
+    }
+
+    if (nubankEndPattern.test(trimmed)) break;
+
+    // Skip page footer + next page header (customer name, CPF, account, period)
+    if (nubankPageFooterPattern.test(trimmed)) {
+      skippingPageBreak = true;
+      continue;
+    }
+    if (skippingPageBreak) {
+      if (nubankPageHeaderEndPattern.test(trimmed)) skippingPageBreak = false;
+      continue;
+    }
+
+    // Day header: "03 MAI 2026 Total de saídas - 926,00" (the total part is optional)
+    const dayMatch = trimmed.match(/^(\d{2})\s+([A-Z]{3})\s+(\d{4})(?:\s+(.*))?$/i);
+    if (dayMatch && nubankMonthToNumber(dayMatch[2])) {
+      currentDate = `${dayMatch[3]}-${nubankMonthToNumber(dayMatch[2])}-${dayMatch[1]}`;
+      const rest = dayMatch[4] || '';
+      if (/^Total de entradas/i.test(rest)) isCredit = true;
+      else if (/^Total de saídas/i.test(rest)) isCredit = false;
+      currentTx = null;
+      continue;
+    }
+
+    // Section header within the same day: "Total de entradas + 1.090,00" / "Total de saídas - 415,98"
+    if (/^Total de entradas/i.test(trimmed)) { isCredit = true; currentTx = null; continue; }
+    if (/^Total de saídas/i.test(trimmed)) { isCredit = false; currentTx = null; continue; }
+
+    if (!currentDate) continue;
+
+    // Transaction line: description followed by the amount ("Compra no débito BAR DA MARIA 80,00")
+    const txMatch = trimmed.match(/^(.*\S)\s+([\d.]+,\d{2})$/);
+    if (txMatch) {
+      const amount = parseFloat(txMatch[2].replace(/\./g, '').replace(',', '.'));
+      currentTx = { date: currentDate, isCredit, amount, descriptionLines: [txMatch[1]] };
+      rawTxs.push(currentTx);
+    } else if (currentTx) {
+      // Continuation line (bank, agency, account of the counterparty)
+      currentTx.descriptionLines.push(trimmed);
+    }
+  }
+
+  const transactions: ParsedTransaction[] = rawTxs.map((tx, idx) => {
+    const historico = tx.descriptionLines.join(' ').replace(/\s+/g, ' ').trim();
+    // Counterparty CNPJ (or unmasked CPF) is used as the document identifier
+    const docMatch = historico.match(/\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}|\d{3}\.\d{3}\.\d{3}-\d{2}/);
+
+    return {
+      id_temp: idx + 1,
+      data: tx.date,
+      documento: docMatch ? docMatch[0] : '',
+      tipo_documento: classifyNubank(historico),
+      historico,
+      valor_debito: tx.isCredit ? null : tx.amount,
+      valor_credito: tx.isCredit ? tx.amount : null
+    };
+  });
+
+  return { transactions, periodStart };
+}
+
+// Caixa configuration patterns
+// Transaction row: "02/03/2026 011109 ENVIO PIX 85,00 D 168,30 C" (date, doc, history, value, nature, balance, nature)
+const caixaRowPattern = /^(\d{2})\/(\d{2})\/(\d{4})\s+(\d+)\s+(.+?)\s+([\d.]+,\d{2})\s+([CD])\s+[\d.]+,\d{2}\s+[CD]$/;
+
+const caixaMonthNames: Record<string, string> = {
+  JANEIRO: '01', FEVEREIRO: '02', MARCO: '03', ABRIL: '04', MAIO: '05', JUNHO: '06',
+  JULHO: '07', AGOSTO: '08', SETEMBRO: '09', OUTUBRO: '10', NOVEMBRO: '11', DEZEMBRO: '12'
+};
+
+function classifyCaixa(historico: string): ParsedTransaction['tipo_documento'] {
+  const desc = historico.toUpperCase();
+
+  if (desc.includes('PIX')) return 'PIX';
+  if (desc.includes('IOF')) return 'IOF';
+  if (desc.includes('BOLETO')) return 'BOLETO';
+  if (desc === 'COMPRA' || desc.startsWith('COMPRA ') || desc.includes('DEB CARTAO')) return 'CARTÃO DE DÉBITO';
+  if (desc.includes('CESTA') || desc.includes('TARIFA') || /\bTAR\b/.test(desc)) return 'TARIFA';
+  if (desc.includes('CHEQUE') || /\bCH\b/.test(desc)) return 'CHEQUE';
+  if (desc.includes('TED') || desc.includes('DOC') || desc.includes('TRANSF')) return 'TRANSFERÊNCIA';
+  if (/\bDEP\b/.test(desc) || desc.includes('DEPOSITO') || desc.includes('DEPÓSITO')) return 'DEPÓSITO';
+  // "DEB JUROS", "SAQUE ATM", "PREV CAIXA", "PAG FONE" and any unknown entry
+  return 'OUTROS';
+}
+
+// SUB-PARSER 4: Caixa Parser
+export function parseCaixa(fullText: string): { transactions: ParsedTransaction[], periodStart: string | null } {
+  // Extract period: "Mês: Março/2026" + "Período: 1 - 31"
+  let periodStart: string | null = null;
+  const monthMatch = fullText.match(/Mês:\s*([A-Za-zÀ-ú]+)\/(\d{4})/i);
+  const dayMatch = fullText.match(/Período:\s*(\d{1,2})\s*-/i);
+  if (monthMatch) {
+    const monthKey = monthMatch[1].toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const month = caixaMonthNames[monthKey];
+    const day = (dayMatch ? dayMatch[1] : '1').padStart(2, '0');
+    if (month) periodStart = `${day}/${month}/${monthMatch[2]}`;
+  }
+
+  const transactions: ParsedTransaction[] = [];
+  let txIndex = 1;
+
+  for (const line of fullText.split('\n')) {
+    const match = line.replace('\r', '').trim().match(caixaRowPattern);
+    if (!match) continue;
+
+    const [, d, m, y, doc, hist, valueStr, nature] = match;
+    const historico = hist.replace(/\s+/g, ' ').trim();
+
+    // USER RULE: daily balance rows are not imported
+    if (historico.toUpperCase().startsWith('SALDO')) continue;
+
+    const value = parseFloat(valueStr.replace(/\./g, '').replace(',', '.'));
+
+    transactions.push({
+      id_temp: txIndex++,
+      data: `${y}-${m}-${d}`,
+      // "000000" means the entry has no document number
+      documento: /^0+$/.test(doc) ? '' : doc,
+      tipo_documento: classifyCaixa(historico),
+      historico,
+      valor_debito: nature === 'D' ? value : null,
+      valor_credito: nature === 'C' ? value : null
+    });
+  }
+
+  return { transactions, periodStart };
+}
+
+export type BankModel = 'sicoob' | 'bradesco' | 'nubank' | 'caixa';
+
 // MAIN PARSER INTERFACE
 export const parsePdfFile = async (
   file: File, 
-  model: 'auto' | 'sicoob' | 'bradesco' = 'auto'
+  model: 'auto' | BankModel = 'auto'
 ): Promise<{ 
   transactions: ParsedTransaction[], 
   periodStart: string | null, 
-  detectedModel: 'sicoob' | 'bradesco' 
+  detectedModel: BankModel 
 }> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -536,10 +730,15 @@ export const parsePdfFile = async (
         const fullText = pagesText.join('\n');
 
         // Auto-detection logic
-        let detectedModel: 'sicoob' | 'bradesco' = 'sicoob';
+        let detectedModel: BankModel = 'sicoob';
         if (model === 'auto') {
           const textUpper = fullText.toUpperCase();
-          if (textUpper.includes('BRADESCO') || textUpper.includes('RENTAB.INVEST') || textUpper.includes('INVEST FÁCIL')) {
+          // Nubank is checked first: its statements may mention other banks in counterparties
+          if (textUpper.includes('NU PAGAMENTOS') || textUpper.includes('NUBANK.COM.BR')) {
+            detectedModel = 'nubank';
+          } else if (textUpper.includes('SAC CAIXA') || textUpper.includes('ALÔ CAIXA')) {
+            detectedModel = 'caixa';
+          } else if (textUpper.includes('BRADESCO') || textUpper.includes('RENTAB.INVEST') || textUpper.includes('INVEST FÁCIL')) {
             detectedModel = 'bradesco';
           } else {
             detectedModel = 'sicoob';
@@ -551,7 +750,11 @@ export const parsePdfFile = async (
         console.log(`Using bank statement parser model: ${detectedModel}`);
         
         let result;
-        if (detectedModel === 'bradesco') {
+        if (detectedModel === 'nubank') {
+          result = parseNubank(fullText);
+        } else if (detectedModel === 'caixa') {
+          result = parseCaixa(fullText);
+        } else if (detectedModel === 'bradesco') {
           result = parseBradesco(fullText);
         } else {
           result = parseSicoob(fullText);

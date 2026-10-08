@@ -27,8 +27,15 @@ import {
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { supabase } from '../lib/supabase';
-import { parsePdfFile, ParsedTransaction } from '../lib/pdfParser';
+import { parsePdfFile, ParsedTransaction, BankModel } from '../lib/pdfParser';
 import { registrarNotificacao } from '../lib/notificacoes';
+
+const bankModelLabels: Record<BankModel, string> = {
+  sicoob: 'Sicoob',
+  bradesco: 'Bradesco',
+  nubank: 'Nubank',
+  caixa: 'Caixa'
+};
 
 const Importacoes: React.FC = () => {
   const [file, setFile] = useState<File | null>(null);
@@ -39,8 +46,8 @@ const Importacoes: React.FC = () => {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   
   // Model selector state
-  const [selectedModel, setSelectedModel] = useState<'auto' | 'sicoob' | 'bradesco'>('auto');
-  const [activeModel, setActiveModel] = useState<'sicoob' | 'bradesco' | null>(null);
+  const [selectedModel, setSelectedModel] = useState<'auto' | BankModel>('auto');
+  const [activeModel, setActiveModel] = useState<BankModel | null>(null);
   
   // Data State
   const [transactions, setTransactions] = useState<ParsedTransaction[]>([]);
@@ -197,7 +204,7 @@ const Importacoes: React.FC = () => {
       setPeriodText(result.periodStart ? `Período: Carga inicial de ${result.periodStart}` : 'Período não identificado');
       setSyncStatus('loaded');
       
-      const modelName = result.detectedModel === 'bradesco' ? 'Bradesco' : 'Sicoob';
+      const modelName = bankModelLabels[result.detectedModel];
       setSuccessMsg(`Extrato extraído com sucesso usando o layout ${modelName}! ${filteredTransactions.length} lançamentos de movimentação (saldos ignorados).`);
     } catch (err: any) {
       console.error(err);
@@ -576,11 +583,13 @@ const Importacoes: React.FC = () => {
             <option value="auto">Autodetectar Modelo (Recomendado)</option>
             <option value="sicoob">Sicoob</option>
             <option value="bradesco">Bradesco</option>
+            <option value="nubank">Nubank</option>
+            <option value="caixa">Caixa</option>
           </select>
           {activeModel && (
             <span className="inline-flex items-center rounded-full bg-teal-50 border border-teal-200 px-3 py-1 text-xs font-semibold text-teal-700">
               <span className="h-1.5 w-1.5 rounded-full bg-teal-500 mr-1.5 animate-ping"></span>
-              Layout: {activeModel === 'bradesco' ? 'Bradesco' : 'Sicoob'}
+              Layout: {bankModelLabels[activeModel]}
             </span>
           )}
         </div>
